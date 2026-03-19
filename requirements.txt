@@ -1,0 +1,10 @@
+PyQt5==5.15.10
+requests==2.31.0
+flask==3.0.0
+python-dotenv==1.0.0
+pydantic==1.10.13
+beautifulsoup4==4.12.3
+playwright==1.41.0
+pycaw==2.0.1
+psutil==5.9.8
+comtypes==1.2.0

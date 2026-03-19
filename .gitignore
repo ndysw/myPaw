@@ -1,0 +1,19 @@
+# Python 
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+env/
+.env
+
+# Android
+.gradle/
+build/
+local.properties
+*.apk
+*.keystore
+
+# IDE
+.vscode/
+.idea/
+.ruff_cache/
