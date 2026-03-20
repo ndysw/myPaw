@@ -36,6 +36,22 @@ def get_messages():
         return jsonify(filtered)
     return jsonify(chat_history)
 
+@app.route("/download", methods=["GET"])
+def download_file():
+    import os
+    from flask import send_file
+    path = request.args.get("path")
+    if not path:
+        return jsonify({"status": "error", "message": "No path provided"}), 400
+    
+    # 标准化路径，处理 Windows 路径差异
+    normalized_path = os.path.normpath(path)
+    print(f"[API Server] 收到下载请求: {normalized_path}")
+    
+    if not os.path.exists(normalized_path):
+        print(f"[API Server] 文件不存在: {normalized_path}")
+        return jsonify({"status": "error", "message": "File not found"}), 404
+    return send_file(normalized_path)
 
 @app.route("/send", methods=["POST"])
 def send_message():

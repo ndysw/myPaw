@@ -63,6 +63,7 @@ class LLMEngine:
         messages.append({"role": "user", "content": prompt})
 
         # 支持多步决策 (最多循环 10 次，防止无限循环)
+        last_image_tag = ""
         for step in range(10):
             response_text = self._call_api(messages)
             
@@ -70,7 +71,7 @@ class LLMEngine:
             messages.append({"role": "assistant", "content": response_text})
 
             # 匹配 Action 模式
-            action_match = re.search(r"Action: (\w+)\nArgs: (\{.*\})", response_text)
+            action_match = re.search(r"Action: (\w+)\nArgs: (\{.*\})", response_text, re.DOTALL)
             
             if action_match and self.skill_manager:
                 skill_name = action_match.group(1)
@@ -82,6 +83,12 @@ class LLMEngine:
                     print(f"[myPAW] 正在执行技能: {skill_name}, 参数: {args}")
                     result = self.skill_manager.execute_skill(skill_name, **args)
                     
+                    # 记录执行结果中是否含有图片标记，用于最后透传
+                    image_regex = r"(\[IMAGE:.*?\])"
+                    image_match = re.search(image_regex, str(result))
+                    if image_match:
+                        last_image_tag = image_match.group(1)
+                    
                     # 将执行结果反馈给 LLM
                     messages.append({"role": "user", "content": f"Observation: {result}"})
                     continue # 继续循环，让 LLM 决定下一步
@@ -91,7 +98,11 @@ class LLMEngine:
                     continue
             else:
                 # 如果没有匹配到 Action，说明是最终回答
-                return response_text
+                final_response = response_text
+                # 如果之前执行过打开图片且最终回复中没有包含该标记，则强制追加
+                if last_image_tag and last_image_tag not in final_response:
+                    final_response += f"\n{last_image_tag}"
+                return final_response
 
         return "任务执行步骤过多，已强制终止。"
 

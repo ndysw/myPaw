@@ -66,6 +66,14 @@ class FileOpsSkill(BaseSkill):
                     subprocess.call(('open', target_path))
                 else:  # linux variants
                     subprocess.call(('xdg-open', target_path))
+                    
+                # 如果是图片文件，在返回信息中追加 [IMAGE: 路径] 标记，供手机端识别
+                ext = os.path.splitext(target_path)[1].lower()
+                if ext in ['.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp']:
+                    # 将路径中的反斜杠统一替换为正斜杠，避免 URL 编码中的歧义问题
+                    safe_target_path = target_path.replace("\\", "/")
+                    return f"已成功请求系统打开：{target_path}\n[IMAGE: {safe_target_path}]"
+                
                 return f"已成功请求系统打开：{target_path}"
             except Exception as e:
                 return f"打开文件失败: {str(e)}"
