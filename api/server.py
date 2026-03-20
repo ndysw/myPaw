@@ -86,33 +86,34 @@ def send_message():
 
 
 class APIServer:
-    def __init__(self, host=None, port=None):
-        import os
-
-        # 从环境变量读取配置，如果没有则使用默认值
-        self.host = host or os.getenv("API_SERVER_HOST", "0.0.0.0")
-        self.port = port or int(os.getenv("API_SERVER_PORT", "8000"))
+    def __init__(self, host="0.0.0.0", port=8000):
+        self.host = host
+        self.port = port
         self.thread = None
+        self.server = None
 
     def start(self):
-        self.thread = threading.Thread(target=self._run, daemon=True)
+        from werkzeug.serving import make_server
+        self.server = make_server(self.host, self.port, app)
+        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
-
-    def _run(self):
         print(f"[API Server] 启动服务器: http://{self.host}:{self.port}")
-        app.run(host=self.host, port=self.port, debug=False, use_reloader=False)
+
+    def stop(self):
+        if self.server:
+            self.server.shutdown()
+            self.thread.join()
 
     def get_server_url(self):
         """获取手机端可连接的局域网 URL"""
         import socket
-        try:
-            # 获取本机局域网 IP
-            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            s.connect(("8.8.8.8", 80))
-            local_ip = s.getsockname()[0]
-            s.close()
-            return f"http://{local_ip}:{self.port}/"
-        except Exception:
-            # 如果获取失败，回退到 host 配置
-            display_host = self.host if self.host != "0.0.0.0" else "127.0.0.1"
-            return f"http://{display_host}:{self.port}/"
+        display_host = self.host
+        if self.host == "0.0.0.0":
+            try:
+                s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                s.connect(("8.8.8.8", 80))
+                display_host = s.getsockname()[0]
+                s.close()
+            except Exception:
+                display_host = "127.0.0.1"
+        return f"http://{display_host}:{self.port}/"

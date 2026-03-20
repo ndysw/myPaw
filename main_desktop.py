@@ -14,6 +14,9 @@ from PyQt5.QtWidgets import (
     QListWidget,
     QSystemTrayIcon,
     QStyle,
+    QScrollArea,
+    QSizePolicy,
+    QFrame,
 )
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
 from PyQt5.QtGui import QIcon, QFont, QTextCursor
@@ -193,7 +196,7 @@ class MyPAWWindow(QMainWindow):
         # 启动后端服务
         from api.server import set_llm_engine, set_on_message_callback
 
-        self.api_server = APIServer()
+        self.api_server = APIServer(host="0.0.0.0", port=8000)
         set_llm_engine(self.engine)
         set_on_message_callback(self.on_mobile_message) # 注入手机消息回调
         self.api_server.start()
@@ -233,6 +236,10 @@ class MyPAWWindow(QMainWindow):
         # 工作区配置
         workspace_group = self._create_workspace_group()
         left_panel.addWidget(workspace_group)
+
+        # API 服务配置
+        api_config_group = self._create_api_config_group()
+        left_panel.addWidget(api_config_group)
 
         left_panel.addWidget(QLabel("已加载技能模块"))
         self.skill_list = QListWidget()
@@ -339,10 +346,22 @@ class MyPAWWindow(QMainWindow):
         font_control_layout.addWidget(self.font_size_label)
         font_control_layout.addStretch()
 
-        self.chat_display = QTextEdit()
-        self.chat_display.setReadOnly(True)
-        self.chat_display.setAcceptRichText(True)
-        self.chat_display.setHtml("")
+        self.chat_content_widget = QWidget()
+        self.chat_content_widget.setStyleSheet("background-color: transparent;")
+        self.chat_layout = QVBoxLayout(self.chat_content_widget)
+        self.chat_layout.setAlignment(Qt.AlignTop)
+        self.chat_layout.setSpacing(15)
+
+        self.chat_display = QScrollArea()
+        self.chat_display.setWidgetResizable(True)
+        self.chat_display.setWidget(self.chat_content_widget)
+        self.chat_display.setStyleSheet("""
+            QScrollArea {
+                background-color: rgba(255, 255, 255, 0.05);
+                border: 2px solid rgba(255, 255, 255, 0.1);
+                border-radius: 12px;
+            }
+        """)
 
         self.input_field = QLineEdit()
         self.input_field.setPlaceholderText("在此下达您的自主任务指令...")
@@ -425,6 +444,79 @@ class MyPAWWindow(QMainWindow):
         group.setLayout(layout)
         return group
 
+    def _create_api_config_group(self):
+        """创建 API 服务地址配置组件"""
+        from PyQt5.QtWidgets import (
+            QGroupBox,
+            QLineEdit,
+            QPushButton,
+            QHBoxLayout,
+            QLabel,
+            QMessageBox,
+        )
+
+        group = QGroupBox("🌐 API 服务地址 (手机端连接)")
+        layout = QHBoxLayout()
+        layout.setSpacing(8)
+
+        self.api_host_input = QLineEdit("192.162.3.28")
+        self.api_host_input.setStyleSheet("color: #000000; background-color: #ffffff; padding: 2px;")
+        
+        self.api_port_input = QLineEdit("8000")
+        self.api_port_input.setStyleSheet("color: #000000; background-color: #ffffff; padding: 2px;")
+        self.api_port_input.setMaximumWidth(50)
+
+        self.restart_api_btn = QPushButton("应用重启")
+        self.restart_api_btn.clicked.connect(self._restart_api_server)
+        self.restart_api_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #f39c12;
+                color: white;
+                border-radius: 4px;
+                padding: 4px 8px;
+            }
+            QPushButton:hover { background-color: #e67e22; }
+        """)
+
+        layout.addWidget(QLabel("IP:"))
+        layout.addWidget(self.api_host_input)
+        layout.addWidget(QLabel("端口:"))
+        layout.addWidget(self.api_port_input)
+        layout.addWidget(self.restart_api_btn)
+
+        group.setLayout(layout)
+        return group
+
+    def _restart_api_server(self):
+        host = self.api_host_input.text().strip()
+        port_str = self.api_port_input.text().strip()
+        
+        if not host or not port_str.isdigit():
+            self.statusBar().showMessage("API 地址或端口无效！")
+            return
+            
+        port = int(port_str)
+        
+        # 停止旧服务器
+        self.statusBar().showMessage("正在重启 API 服务...")
+        QApplication.processEvents()
+        
+        if hasattr(self, 'api_server') and self.api_server:
+            try:
+                self.api_server.stop()
+            except Exception as e:
+                print(f"停止服务时出错: {e}")
+                
+        # 启动新服务器
+        from api.server import APIServer, set_llm_engine, set_on_message_callback
+        self.api_server = APIServer(host=host, port=port)
+        set_llm_engine(self.engine)
+        set_on_message_callback(self.on_mobile_message)
+        self.api_server.start()
+        
+        server_url = self.api_server.get_server_url()
+        self.statusBar().showMessage(f"API 服务已重启: {server_url}")
+
     def _browse_workspace(self):
         """浏览选择工作区目录"""
         from PyQt5.QtWidgets import QFileDialog
@@ -440,69 +532,92 @@ class MyPAWWindow(QMainWindow):
         """设置工作区并更新技能"""
         self.workspace_label.setText(path)
 
-        # 更新 code_skill 和 build_skill 的工作区
+        # 更新 code_skill, build_skill 和 file_ops 的工作区
         if "code_skill" in self.skill_manager.skills:
             self.skill_manager.skills["code_skill"].set_workspace(path)
         if "build_skill" in self.skill_manager.skills:
             self.skill_manager.skills["build_skill"].set_workspace(path)
+        if "file_ops" in self.skill_manager.skills:
+            self.skill_manager.skills["file_ops"].set_workspace(path)
 
         self.statusBar().showMessage(f"工作区已更改：{path}")
 
     def append_chat(self, sender, message, is_user=False):
-        formatted_message = message.replace("\n", "<br>")
         current_time = self.get_current_time()
 
-        if is_user:
-            # 用户消息 - 蓝色立体气泡 (右对齐)
-            html = f"""
-            <table width="100%" cellspacing="0" cellpadding="8" style="margin-bottom: 10px;">
-                <tr>
-                    <td align="right">
-                        <table cellspacing="0" cellpadding="12" style="
-                            background-color: #3498db;
-                            border: 2px solid #2980b9;
-                            border-bottom: 4px solid #1a5276;
-                            border-radius: 15px;
-                            color: #ffffff;
-                            max-width: 70%;
-                        ">
-                            <tr><td>
-                                <div style="font-size: 11px; color: #aed6f1; font-weight: bold; margin-bottom: 5px;">👤 我</div>
-                                <div style="font-size: 14px; line-height: 1.5;">{formatted_message}</div>
-                                <div style="font-size: 10px; color: rgba(255,255,255,0.6); margin-top: 8px; text-align: right;">{current_time}</div>
-                            </td></tr>
-                        </table>
-                    </td>
-                </tr>
-            </table>
-            """
-        else:
-            # 机器人消息 - 紫罗兰立体气泡 (左对齐)
-            html = f"""
-            <table width="100%" cellspacing="0" cellpadding="8" style="margin-bottom: 10px;">
-                <tr>
-                    <td align="left">
-                        <table cellspacing="0" cellpadding="12" style="
-                            background-color: #9b59b6;
-                            border: 2px solid #8e44ad;
-                            border-bottom: 4px solid #6c3483;
-                            border-radius: 15px;
-                            color: #ffffff;
-                            max-width: 70%;
-                        ">
-                            <tr><td>
-                                <div style="font-size: 11px; color: #e8daef; font-weight: bold; margin-bottom: 5px;">🤖 myPAW</div>
-                                <div style="font-size: 14px; line-height: 1.5;">{formatted_message}</div>
-                                <div style="font-size: 10px; color: rgba(255,255,255,0.6); margin-top: 8px; text-align: right;">{current_time}</div>
-                            </td></tr>
-                        </table>
-                    </td>
-                </tr>
-            </table>
-            """
+        msg_container = QWidget()
+        msg_layout = QHBoxLayout(msg_container)
+        msg_layout.setContentsMargins(0, 0, 0, 0)
+        
+        bubble = QFrame()
+        bubble_layout = QVBoxLayout(bubble)
+        bubble_layout.setContentsMargins(15, 12, 15, 12)
+        bubble_layout.setSpacing(5)
 
-        self.chat_display.append(html)
-        self.chat_display.moveCursor(QTextCursor.End)
+        header = QLabel(f"👤 我" if is_user else f"🤖 myPAW")
+        header_color = "#bdf6c6" if is_user else "#8e8e93"
+        header.setStyleSheet(f"color: {header_color}; font-size: 11px; font-weight: bold;")
+        
+        content = QLabel(message.replace("\n", "<br>"))
+        content.setWordWrap(True)
+        content.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        content.setTextFormat(Qt.RichText)
+        font = content.font()
+        font.setPointSize(self.current_font_size)
+        content.setFont(font)
+        
+        footer = QLabel(current_time)
+        footer_color = "rgba(255,255,255,0.7)" if is_user else "rgba(0,0,0,0.5)"
+        footer.setStyleSheet(f"color: {footer_color}; font-size: 10px;")
+        footer.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+
+        bubble_layout.addWidget(header)
+        bubble_layout.addWidget(content)
+        bubble_layout.addWidget(footer)
+
+        if is_user:
+            bubble.setStyleSheet("""
+                QFrame {
+                    background-color: #43d859;
+                    border-top: 2px solid #78f08a;
+                    border-left: 2px solid #5adb6c;
+                    border-right: 2px solid #2db841;
+                    border-bottom: 4px solid #219932;
+                    border-radius: 18px;
+                }
+                QLabel {
+                    color: #ffffff;
+                    border: none;
+                    background: transparent;
+                }
+            """)
+            msg_layout.addStretch()
+            msg_layout.addWidget(bubble)
+        else:
+            bubble.setStyleSheet("""
+                QFrame {
+                    background-color: #e5e5ea;
+                    border-top: 2px solid #ffffff;
+                    border-left: 2px solid #f2f2f5;
+                    border-right: 2px solid #d1d1d6;
+                    border-bottom: 4px solid #b8b8be;
+                    border-radius: 18px;
+                }
+                QLabel {
+                    color: #000000;
+                    border: none;
+                    background: transparent;
+                }
+            """)
+            msg_layout.addWidget(bubble)
+            msg_layout.addStretch()
+
+        bubble.setMaximumWidth(600)
+        self.chat_layout.addWidget(msg_container)
+
+        QApplication.processEvents()
+        scrollbar = self.chat_display.verticalScrollBar()
+        scrollbar.setValue(scrollbar.maximum())
 
     def get_current_time(self):
         from datetime import datetime

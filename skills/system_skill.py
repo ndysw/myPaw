@@ -8,8 +8,8 @@ from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume
 
 class SystemSkill(BaseSkill):
     """
-    提供本地操作系统控制功能：启动程序、控制音量、查看状态。
-    这是 OpenClaw 自主性的核心体现。
+    提供本地操作系统控制功能：启动程序、控制音量、查看状态、查询电脑配置。
+    支持的 action: "launch", "volume", "status", "info" 或 "config"。
     """
     
     def __init__(self):
@@ -64,5 +64,13 @@ class SystemSkill(BaseSkill):
             battery = psutil.sensors_battery()
             battery_str = f"{battery.percent}%" if battery else "未知 (台式机?)"
             return f"系统状态报告:\n- CPU 使用率: {cpu}%\n- 内存占用: {mem}%\n- 电池电量: {battery_str}"
+            
+        elif action in ["info", "config"]:
+            import platform
+            uname = platform.uname()
+            os_info = f"{uname.system} {uname.release} ({uname.version})"
+            cpu_info = platform.processor()
+            total_mem = round(psutil.virtual_memory().total / (1024 ** 3), 2)
+            return f"系统配置信息:\n- 操作系统: {os_info}\n- 处理器 (CPU): {cpu_info}\n- 总物理内存: {total_mem} GB"
 
         return "不支持的系统动作"
