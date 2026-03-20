@@ -38,6 +38,13 @@ class LLMEngine:
           * action='extract' - 提取特定元素文本 (url, selector)
           注：当需要查询实时新闻（如新浪新闻）时，请先 visit 对应的官网地址（https://news.sina.com.cn/）。
 
+        【系统与文件操作技能】
+        - file_ops: 系统文件操作 (非常重要：当用户要求打开、读取本地文件或图片时，必须使用此技能)
+          * action='open' - 调用系统默认程序直接打开文件或图片 (path: 文件绝对路径或相对工作区的路径)
+          * action='list' - 列出目录下的文件 (path: 目录路径)
+          * action='read' - 读取文本文件内容 (path: 文件路径)
+        - system_skill: 操作系统控制 (action='launch'|'volume'|'status'|'info')
+
         【编程相关技能】
         - code_skill: 代码操作 (action='read'|'write'|'modify'|'create'|'delete'|'list'|'search', file_path, content, old_text, new_text, pattern)
         - build_skill: 编译和运行 (action='compile'|'run'|'build'|'test', file_path, command, language)
