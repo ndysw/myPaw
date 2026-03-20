@@ -41,7 +41,15 @@ class FileOpsSkill(BaseSkill):
         if action == "list":
             try:
                 files = os.listdir(target_path)
-                return f"目录 {target_path} 下的文件: {', '.join(files)}"
+                total_count = len(files)
+                # 限制返回数量，防止由于桌面文件过多导致上下文爆炸
+                limit = 50
+                display_files = files[:limit]
+                
+                result = f"目录 {target_path} 下的文件 (共 {total_count} 个): {', '.join(display_files)}"
+                if total_count > limit:
+                    result += f"\n...(仅显示前 {limit} 个，还有 {total_count - limit} 个文件未列出)"
+                return result
             except Exception as e:
                 return f"读取目录失败: {str(e)}"
                 

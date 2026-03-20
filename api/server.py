@@ -40,10 +40,15 @@ def get_messages():
 def download_file():
     import os
     from flask import send_file
-    path = request.args.get("path")
-    if not path:
+    from urllib.parse import unquote
+    
+    # 这里的 path 已经是 Flask 自动 URL 解码后的，或者是原始的，
+    # 我们再手动 unquote 确保编码完全一致。
+    raw_path = request.args.get("path")
+    if not raw_path:
         return jsonify({"status": "error", "message": "No path provided"}), 400
     
+    path = unquote(raw_path)
     # 标准化路径，处理 Windows 路径差异
     normalized_path = os.path.normpath(path)
     print(f"[API Server] 收到下载请求: {normalized_path}")
@@ -51,7 +56,12 @@ def download_file():
     if not os.path.exists(normalized_path):
         print(f"[API Server] 文件不存在: {normalized_path}")
         return jsonify({"status": "error", "message": "File not found"}), 404
-    return send_file(normalized_path)
+        
+    # 尝试根据扩展名获取 MIME 类型
+    import mimetypes
+    mimetype, _ = mimetypes.guess_type(normalized_path)
+    
+    return send_file(normalized_path, mimetype=mimetype)
 
 @app.route("/send", methods=["POST"])
 def send_message():
@@ -82,6 +92,7 @@ def send_message():
     if llm_engine and content:
         try:
             response = llm_engine.chat(content)
+
             ai_message = {
                 "sender": "myPAW",
                 "content": response,

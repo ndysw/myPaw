@@ -21,13 +21,28 @@ class LLMEngine:
         """
         支持自主执行的聊天逻辑 (模仿 OpenClaw 的 ReAct 思维方式)。
         """
+        # 动态获取系统桌面路径，帮助 AI 准确定位
+        desktop_path = os.path.join(os.path.expanduser("~"), "Desktop")
+        if not os.path.exists(desktop_path):
+            # 兼容一些非标准配置
+            desktop_path = os.path.join(os.path.expanduser("~"), "桌面")
 
-        system_prompt = """
+        system_prompt = f"""
         你是一个名为 myPAW 的自主 AI 助手，具备编程和实时信息检索能力。
+        当前系统信息:
+        - 操作系统: {os.name}
+        - 当前用户桌面路径: {desktop_path}
+        - 当前工作目录: {os.getcwd()}
+
         当你需要执行任务时，请输出以下格式：
         Thought: 你的思考过程
         Action: 技能名称
-        Args: {"参数名": "参数值"}
+        Args: {{"参数名": "参数值"}}
+
+        【重要规则】:
+        1. 当你收到了 Observation (观察结果) 后，你应该根据结果直接向用户提供最终结论，除非你需要执行第二个不同的步骤。
+        2. 不要重复执行完全相同的 Action。如果你已经执行过一次，且结果已经返回，请直接告诉用户结果。
+        3. 最终回复不要再带 Action 标记。
 
         当前可用技能列表:
         
@@ -99,7 +114,7 @@ class LLMEngine:
             else:
                 # 如果没有匹配到 Action，说明是最终回答
                 final_response = response_text
-                # 如果之前执行过打开图片且最终回复中没有包含该标记，则强制追加
+                # --- 恢复下午成功的补丁逻辑：强制追加图片标记 ---
                 if last_image_tag and last_image_tag not in final_response:
                     final_response += f"\n{last_image_tag}"
                 return final_response
@@ -110,28 +125,52 @@ class LLMEngine:
         if self.api_key == "your_api_key_here":
             return "模拟回复：[Action: browser_skill\nArgs: {\"action\": \"visit\", \"url\": \"https://news.sina.com.cn/\"}]\n(请在 .env 中配置您的 LongCat API Key)"
 
-        try:
-            url = f"{self.api_base}/v1/chat/completions"
-            
-            headers = {
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {self.api_key}"
-            }
-            
-            payload = {
-                "model": self.model,
-                "messages": messages,
-                "temperature": 0.5,
-                "max_tokens": 2048,
-                "stream": False
-            }
+        import time
+        max_retries = 3
+        retry_delay = 1
+        current_model = self.model
 
-            response = requests.post(url, headers=headers, json=payload)
-            
-            if response.status_code == 200:
-                result = response.json()
-                return result['choices'][0]['message']['content']
-            else:
-                return f"LongCat API 错误: {response.status_code} - {response.text}"
-        except Exception as e:
-            return f"LongCat API 调用异常: {str(e)}"
+        for attempt in range(max_retries + 1):
+            try:
+                url = f"{self.api_base}/v1/chat/completions"
+                
+                headers = {
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {self.api_key}"
+                }
+                
+                payload = {
+                    "model": current_model,
+                    "messages": messages,
+                    "temperature": 0.5,
+                    "max_tokens": 2048,
+                    "stream": False
+                }
+
+                response = requests.post(url, headers=headers, json=payload)
+                
+                if response.status_code == 200:
+                    result = response.json()
+                    return result['choices'][0]['message']['content']
+                elif response.status_code == 429:
+                    if attempt < max_retries:
+                        # 429 错误：服务端模型限流或过载
+                        print(f"[LLMEngine] LongCat API 触发 429 限流 (尝试 {attempt + 1}/{max_retries})，等待 {retry_delay}s...")
+                        time.sleep(retry_delay)
+                        retry_delay *= 2  # 指数退避
+                        # 如果是默认模型触发限流，尝试降级到 Lite 模型
+                        if current_model == "LongCat-Flash-Thinking-2601":
+                            current_model = "LongCat-Flash-Lite"
+                            print(f"[LLMEngine] 降级至模型: {current_model}")
+                        continue
+                    else:
+                        return f"LongCat API 错误: 429 - 服务端模型限流，已达到最大重试次数。详细信息: {response.text}"
+                else:
+                    return f"LongCat API 错误: {response.status_code} - {response.text}"
+            except Exception as e:
+                if attempt < max_retries:
+                    print(f"[LLMEngine] LongCat API 调用异常 (尝试 {attempt + 1}/{max_retries}): {str(e)}")
+                    time.sleep(retry_delay)
+                    retry_delay *= 2
+                    continue
+                return f"LongCat API 调用异常: {str(e)}"
