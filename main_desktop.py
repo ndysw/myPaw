@@ -1,5 +1,6 @@
 import sys
 import os
+import socket
 from PyQt5.QtWidgets import (
     QApplication,
     QMainWindow,
@@ -19,7 +20,7 @@ from PyQt5.QtWidgets import (
     QFrame,
 )
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
-from PyQt5.QtGui import QIcon, QFont, QTextCursor
+from PyQt5.QtGui import QIcon, QFont, QTextCursor, QPixmap
 from core.llm_engine import LLMEngine
 from core.skill_manager import SkillManager
 from api.server import APIServer
@@ -183,6 +184,10 @@ class MyPAWWindow(QMainWindow):
     def __init__(self):
         super().__init__()
 
+        # 获取本机 IP 并更新环境变量
+        self.local_ip = self._get_local_ip()
+        self._update_env_ip(self.local_ip)
+
         # 连接信号到 UI 更新方法
         self.mobile_message_signal.connect(self.append_chat)
 
@@ -212,6 +217,44 @@ class MyPAWWindow(QMainWindow):
         print(f"[myPAW] API 服务器地址: {server_url}")
         print(f"[myPAW] 手机端连接地址: {server_url}")
 
+    def _get_local_ip(self):
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.connect(('8.8.8.8', 80))
+            ip = s.getsockname()[0]
+        except Exception:
+            ip = '127.0.0.1'
+        finally:
+            s.close()
+        return ip
+
+    def _update_env_ip(self, ip_address):
+        env_path = '.env'
+        if not os.path.exists(env_path):
+            if os.path.exists('.env.example'):
+                import shutil
+                shutil.copy('.env.example', env_path)
+            else:
+                with open(env_path, 'w', encoding='utf-8') as f:
+                    f.write(f"API_SERVER_HOST={ip_address}\n")
+                return
+
+        with open(env_path, 'r', encoding='utf-8') as f:
+            lines = f.readlines()
+            
+        found = False
+        with open(env_path, 'w', encoding='utf-8') as f:
+            for line in lines:
+                if line.startswith('API_SERVER_HOST='):
+                    f.write(f"API_SERVER_HOST={ip_address}\n")
+                    found = True
+                else:
+                    f.write(line)
+            if not found:
+                if lines and not lines[-1].endswith('\n'):
+                    f.write('\n')
+                f.write(f"API_SERVER_HOST={ip_address}\n")
+
     def initTray(self):
         self.tray_icon = QSystemTrayIcon(self)
         self.tray_icon.setIcon(self.style().standardIcon(QStyle.SP_ComputerIcon))
@@ -232,6 +275,31 @@ class MyPAWWindow(QMainWindow):
 
         # 左侧面板
         left_panel = QVBoxLayout()
+
+        # Logo 显示区域
+        tribute_label = QLabel("致敬")
+        tribute_label.setAlignment(Qt.AlignCenter)
+        tribute_label.setStyleSheet("color: #4facfe; font-size: 16px; font-weight: bold; margin-bottom: 2px;")
+        left_panel.addWidget(tribute_label)
+
+        logo_label = QLabel()
+        logo_pixmap = QPixmap("logo.png")
+        if not logo_pixmap.isNull():
+            # 缩放 Logo，保持比例，并平滑处理
+            logo_pixmap = logo_pixmap.scaledToWidth(250, Qt.SmoothTransformation)
+            logo_label.setPixmap(logo_pixmap)
+            logo_label.setAlignment(Qt.AlignCenter)
+            # 添加立体装饰效果
+            logo_label.setStyleSheet("""
+                QLabel {
+                    background-color: rgba(255, 255, 255, 0.03);
+                    border: 2px solid rgba(255, 255, 255, 0.1);
+                    border-radius: 12px;
+                    padding: 10px;
+                    margin-bottom: 10px;
+                }
+            """)
+            left_panel.addWidget(logo_label)
 
         # 工作区配置
         workspace_group = self._create_workspace_group()
@@ -459,7 +527,7 @@ class MyPAWWindow(QMainWindow):
         layout = QHBoxLayout()
         layout.setSpacing(8)
 
-        self.api_host_input = QLineEdit("192.162.3.28")
+        self.api_host_input = QLineEdit(getattr(self, 'local_ip', "127.0.0.1"))
         self.api_host_input.setStyleSheet("color: #000000; background-color: #ffffff; padding: 2px;")
         
         self.api_port_input = QLineEdit("8000")
